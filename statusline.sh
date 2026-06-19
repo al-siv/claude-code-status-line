@@ -1,0 +1,144 @@
+#!/usr/bin/env bash
+#
+# claude-code-status-line -- a semantic, color-coded status line for Claude Code.
+#
+# Reads the status-line JSON on stdin and prints a single line to stdout.
+# Wire it into Claude Code via ~/.claude/settings.json:
+#
+#   "statusLine": { "type": "command", "command": "bash /path/to/statusline.sh" }
+#
+# Segments:
+#   dir  <branch>  ∆: C+N  δ +A/-D  <model>  <eff>  NNNk  5h:X% 7d:Y%
+#
+# Color layers -- every color carries exactly one meaning:
+#
+#   TRAFFIC LIGHT (approaching a hard ceiling, a quantitative gradient):
+#     - context tokens NNNk : orange > CTX_WARN_K, red > CTX_CRIT_K
+#     - rate limits 5h / 7d : orange > RL_WARN%,   red > RL_CRIT%
+#     orange and red are used nowhere else.
+#
+#   ATTENTION (the run is configured off the safe default, a categorical flag),
+#   shown in bold magenta:
+#     - model : flagged when its class is below Opus (matches WEAK_MODEL_RE)
+#     - <eff> : flagged when the effort level is not listed in SAFE_EFFORT
+#
+#   INFORMATION (data, not an alarm):
+#     - branch  : cyan when not on the main branch
+#     - ∆: C+N  : C changed tracked files (yellow), N new/untracked files (green)
+#     - δ +A/-D : +A added lines (green), -D removed lines (neutral)
+#   green means "addition" (new files, added lines); yellow means "modified".
+#
+# Token-count note: the status JSON exposes used_percentage and
+# context_window_size but no absolute token count, so the figure is computed as
+#   tokens = used_percentage / 100 * context_window_size
+# The orange/red thresholds therefore only trigger if the context window is large
+# enough to reach them (for example a 1M-token window). The printed kN is always
+# accurate regardless of window size.
+#
+# Honors NO_COLOR (https://no-color.org/): set NO_COLOR to disable all coloring.
+#
+# Dependencies: bash, jq, git, awk.
+
+input=$(cat)
+
+# ---- Configuration (override via environment) ------------------------------
+CTX_WARN_K="${STATUSLINE_CTX_WARN_K:-300}"                # context tokens (k) -> orange
+CTX_CRIT_K="${STATUSLINE_CTX_CRIT_K:-500}"                # context tokens (k) -> red
+RL_WARN="${STATUSLINE_RL_WARN:-80}"                       # rate-limit % -> orange
+RL_CRIT="${STATUSLINE_RL_CRIT:-95}"                       # rate-limit % -> red
+SAFE_EFFORT="${STATUSLINE_SAFE_EFFORT:-high xhigh}"       # effort levels not flagged
+WEAK_MODEL_RE="${STATUSLINE_WEAK_MODEL_RE:-sonnet|haiku}" # models flagged below Opus
+MAIN_BRANCH="${STATUSLINE_MAIN_BRANCH:-main}"             # branch treated as "home"
+
+# ---- ANSI palette (256-color) ----------------------------------------------
+ORANGE=$'\033[38;5;208m'       # traffic light: warn
+RED=$'\033[38;5;196m'          # traffic light: critical
+GREEN=$'\033[38;5;40m'         # information: addition (new files, added lines)
+YELLOW=$'\033[38;5;220m'       # information: modified tracked files
+CYAN=$'\033[38;5;45m'          # information: off main branch
+MAGENTA_B=$'\033[1;38;5;201m'  # attention: run config off default
+RESET=$'\033[0m'
+if [ -n "${NO_COLOR:-}" ]; then ORANGE=""; RED=""; GREEN=""; YELLOW=""; CYAN=""; MAGENTA_B=""; RESET=""; fi
+
+# ---- Fields from the status JSON -------------------------------------------
+cwd=$(jq -r '.workspace.current_dir // .cwd // "."' <<<"$input")
+dir=$(basename "$cwd" 2>/dev/null)
+model=$(jq -r '.model.display_name // empty' <<<"$input" | sed 's/ context)/)/')
+eff=$(jq -r '.effort.level // empty' <<<"$input")
+used=$(jq -r '.context_window.used_percentage // empty' <<<"$input")
+size=$(jq -r '.context_window.context_window_size // empty' <<<"$input")
+five=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<<"$input")
+week=$(jq -r '.rate_limits.seven_day.used_percentage // empty' <<<"$input")
+
+branch=$(git -C "$cwd" --no-optional-locks rev-parse --abbrev-ref HEAD 2>/dev/null)
+
+out="$dir"
+
+# Colors a number only when it is greater than 0; otherwise leaves it neutral.
+col_n() {  # $1=number  $2=color
+  if [ "$1" -gt 0 ] 2>/dev/null; then printf '%s%s%s' "$2" "$1" "$RESET"
+  else printf '%s' "$1"; fi
+}
+
+# ---- git: branch + uncommitted counters ------------------------------------
+if [ -n "$branch" ]; then
+  if [ "$branch" = "$MAIN_BRANCH" ]; then out="$out  $branch"
+  else out="$out  ${CYAN}${branch}${RESET}"; fi
+
+  # ∆: C+N  (always shown; C changed = yellow, N new = green)
+  porc=$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)
+  if [ -n "$porc" ]; then
+    n=$(grep -c '^??' <<<"$porc")     # new (untracked)
+    c=$(grep -vc '^??' <<<"$porc")    # changed/deleted/staged (tracked)
+  else n=0; c=0; fi
+  out="$out  ∆: $(col_n "$c" "$YELLOW")+$(col_n "$n" "$GREEN")"
+
+  # δ +A/-D  (uncommitted diff against HEAD; +A green, -D neutral)
+  diffstat=$(git -C "$cwd" --no-optional-locks diff HEAD --numstat 2>/dev/null)
+  la=$(awk '$1 ~ /^[0-9]+$/ {a+=$1} END{print a+0}' <<<"$diffstat")
+  lr=$(awk '$2 ~ /^[0-9]+$/ {d+=$2} END{print d+0}' <<<"$diffstat")
+  if [ "$la" -gt 0 ] 2>/dev/null; then ap="${GREEN}+${la}${RESET}"; else ap="+${la}"; fi
+  out="$out  δ ${ap}/-${lr}"
+fi
+
+# ---- model (bold magenta when its class is below Opus) ---------------------
+if [ -n "$model" ]; then
+  if grep -qiE "$WEAK_MODEL_RE" <<<"$model"; then out="$out  ${MAGENTA_B}${model}${RESET}"
+  else out="$out  $model"; fi
+fi
+
+# ---- effort <eff> (bold magenta when not in SAFE_EFFORT) -------------------
+if [ -n "$eff" ]; then
+  case " $SAFE_EFFORT " in
+    *" $eff "*) out="$out  <$eff>";;
+    *)          out="$out  ${MAGENTA_B}<$eff>${RESET}";;
+  esac
+fi
+
+# ---- TRAFFIC LIGHT: context tokens in thousands ----------------------------
+if [ -n "$used" ] && [ -n "$size" ]; then
+  tk=$(awk -v u="$used" -v s="$size" 'BEGIN{printf "%.0f", u/100*s/1000}')
+  col=""
+  if   [ "$tk" -gt "$CTX_CRIT_K" ]; then col="$RED"
+  elif [ "$tk" -gt "$CTX_WARN_K" ]; then col="$ORANGE"
+  fi
+  if [ -n "$col" ]; then out="$out  ${col}${tk}k${RESET}"; else out="$out  ${tk}k"; fi
+fi
+
+# ---- TRAFFIC LIGHT: rate limits --------------------------------------------
+rl_seg() {  # $1=label  $2=percent
+  [ -z "$2" ] && return
+  local p col=""
+  p=$(printf '%.0f' "$2")
+  if   [ "$p" -gt "$RL_CRIT" ]; then col="$RED"
+  elif [ "$p" -gt "$RL_WARN" ]; then col="$ORANGE"
+  fi
+  if [ -n "$col" ]; then printf '%s%s:%s%%%s' "$col" "$1" "$p" "$RESET"
+  else printf '%s:%s%%' "$1" "$p"; fi
+}
+rl=""
+seg=$(rl_seg 5h "$five"); [ -n "$seg" ] && rl="$seg"
+seg=$(rl_seg 7d "$week"); [ -n "$seg" ] && rl="$rl${rl:+ }$seg"
+[ -n "$rl" ] && out="$out  $rl"
+
+printf '%s\n' "$out"
