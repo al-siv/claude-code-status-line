@@ -1,21 +1,20 @@
-# claude-code-status-line
+# Claude Code Status Line
 
-A semantic, color-coded status line for [Claude Code](https://docs.claude.com/en/docs/claude-code).
+A semantic, color-coded [status line](https://code.claude.com/docs/en/statusline)
+for [Claude Code](https://code.claude.com/docs).
 
 It turns the status line into a glanceable dashboard: git working-tree state, the
-context-window token budget, rate-limit traffic lights, and a clear warning
-whenever you are running with a non-default model or reasoning-effort setting.
+context-window token budget, rate-limit traffic lights, and a clear flag whenever
+the session runs on a model below Opus or an effort level outside your safe set.
+One Bash script, no build step.
 
-## Example
+![Example status line: my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:88% 7d:97%](docs/example.svg)
 
-```
-my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:88% 7d:97%
-```
-
-Left to right: directory `my-app`; on branch `feature/login` (not main); 2 modified
-and 1 new uncommitted file; +47/-12 uncommitted lines; running on `Sonnet 4.6` with
-`low` effort (both flagged); 420k tokens of context used; rate limits at 88% (5h)
-and 97% (7d).
+Left to right: directory `my-app`; branch `feature/login` (cyan: not main); 2
+modified and 1 new uncommitted file; +47/-12 uncommitted lines; `Sonnet 4.6` at
+`low` effort (both flagged in magenta); 420k context tokens (orange: past the
+warning threshold); rate limits at 88% for 5 hours (orange) and 97% for 7 days
+(red).
 
 ## Design: one color, one meaning
 
@@ -27,7 +26,7 @@ The palette is organized into three layers so that no single color is overloaded
 | red | at the limit (critical) | context tokens, rate limits |
 | yellow | modified tracked files | `∆` C |
 | green | addition: new files, added lines | `∆` N, `δ` +A |
-| bold magenta | run configured off the safe default | model below Opus, non-default effort |
+| bold magenta | run configured off the safe default | model below Opus, effort outside the safe set |
 | cyan | not on the main branch | branch |
 | default | safe / informational | everything else |
 
@@ -42,16 +41,21 @@ colors is the whole point: a color you see always means the same thing.
 | --- | --- | --- |
 | `dir` | current directory name | default |
 | `branch` | current git branch | cyan when not `main` |
-| `∆:C+N` | uncommitted files: C changed (tracked), N new (untracked) | C yellow, N green; shown whenever inside a repo |
-| `δ:+A/-D` | uncommitted line diff vs `HEAD` | +A green, -D default |
+| `∆:C+N` | uncommitted files: C changed (tracked), N new (untracked) | C yellow, N green |
+| `δ:+A/-D` | uncommitted line diff of tracked files vs `HEAD` | +A green, -D default |
 | `model` | active model | bold magenta when below Opus |
-| `•eff` | reasoning-effort level, glued to the model: `L` low, `M` medium, `H` high, `XH` xhigh, `X` max | bold magenta when not `high`/`xhigh` |
+| `•eff` | reasoning effort, attached to the model: `L` low, `M` medium, `H` high, `XH` xhigh, `X` max | bold magenta when not `high`/`xhigh` |
 | `NNNk` | context tokens used | orange above 300k, red above 500k |
 | `5h` / `7d` | rate-limit usage | orange above 80%, red above 95% |
 
-The `∆` and `δ` counters are shown whenever the current directory is a git
-repository, including `∆:0+0` / `δ:+0/-0` on a clean tree, so the layout stays
-stable and you always know where to look.
+Segments appear only when Claude Code provides their data:
+
+- `∆` and `δ` are shown whenever the current directory is inside a git repository,
+  including `∆:0+0` / `δ:+0/-0` on a clean tree, so the layout stays stable. Lines
+  in untracked files are not counted in `δ`.
+- `•eff` is shown only for models that support the effort parameter.
+- `5h` / `7d` are shown only for Claude.ai Pro and Max subscribers, after the first
+  API response of the session.
 
 ## Requirements
 
@@ -76,8 +80,22 @@ Point Claude Code at the script in `~/.claude/settings.json`:
 }
 ```
 
-Alternatively, run `./install.sh` to copy the script into `~/.claude/` and print the
-exact snippet to add. The status line updates on the next render; no restart needed.
+Alternatively, run `./install.sh` to copy the script to `~/.claude/statusline.sh`
+and print the snippet to add. A different script already at that path is renamed to
+`statusline.sh.bak.<timestamp>` first. The copy does not follow the repository:
+re-run the installer after `git pull`.
+
+Claude Code reloads settings automatically, so the status line appears as soon as
+the file is saved. To preview the output without Claude Code, pipe in sample JSON:
+
+```sh
+echo '{"workspace":{"current_dir":"'"$PWD"'"},"model":{"display_name":"Opus"},"effort":{"level":"high"}}' \
+  | bash statusline.sh
+```
+
+Claude Code re-runs the script on session events such as a new assistant message.
+To keep the git counters current while the session is idle, add
+`"refreshInterval": 5` (seconds) to the `statusLine` object.
 
 ## Configuration
 
@@ -94,25 +112,27 @@ inline in the command, for example:
 | `STATUSLINE_CTX_CRIT_K` | `500` | context tokens (thousands) that turn it red |
 | `STATUSLINE_RL_WARN` | `80` | rate-limit percentage that turns a bucket orange |
 | `STATUSLINE_RL_CRIT` | `95` | rate-limit percentage that turns it red |
-| `STATUSLINE_SAFE_EFFORT` | `high xhigh` | space-separated effort levels that are not flagged |
+| `STATUSLINE_SAFE_EFFORT` | `high xhigh` | space-separated effort levels (full names) that are not flagged |
 | `STATUSLINE_WEAK_MODEL_RE` | `sonnet\|haiku` | case-insensitive regex of model names flagged as below Opus |
 | `STATUSLINE_MAIN_BRANCH` | `main` | branch treated as home (no highlight) |
 | `NO_COLOR` | unset | set to any value to disable all coloring (see <https://no-color.org/>) |
 
-## How the token count works
+## Context token count
 
-Claude Code's status-line JSON exposes `context_window.used_percentage` and
-`context_window.context_window_size`, but no absolute token count. This script
-computes:
+The token figure is the input-side context size, taken from Claude Code's
+status-line JSON:
 
 ```
-tokens = used_percentage / 100 * context_window_size
+tokens = input_tokens + cache_creation_input_tokens + cache_read_input_tokens
 ```
 
-The printed `kN` figure is therefore always accurate. The orange/red thresholds,
-however, only trigger if your context window is large enough to reach them — the
-default 300k/500k thresholds assume a 1M-token window. Adjust
-`STATUSLINE_CTX_WARN_K` / `STATUSLINE_CTX_CRIT_K` to match your window.
+from `context_window.current_usage`, the same formula Claude Code uses for
+`used_percentage`. Before the first API call of a session, when `current_usage` is
+`null`, the script falls back to `used_percentage / 100 * context_window_size`.
+
+The thresholds are absolute token counts, not a share of the window: past about
+300k, and again past 500k, the cost of processing the context grows faster. On
+windows of 300k tokens or less the counter therefore never changes color, by design.
 
 ## License
 

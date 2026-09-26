@@ -28,12 +28,11 @@
 #     - δ:+A/-D : +A added lines (green), -D removed lines (neutral)
 #   green means "addition" (new files, added lines); yellow means "modified".
 #
-# Token-count note: the status JSON exposes used_percentage and
-# context_window_size but no absolute token count, so the figure is computed as
-#   tokens = used_percentage / 100 * context_window_size
-# The orange/red thresholds therefore only trigger if the context window is large
-# enough to reach them (for example a 1M-token window). The printed kN is always
-# accurate regardless of window size.
+# Token-count note: the figure is the input-side context size from
+# context_window.current_usage (input + cache creation + cache read tokens),
+# falling back to used_percentage / 100 * context_window_size. The thresholds are
+# absolute token counts, not a share of the window: they mark context sizes past
+# which processing cost grows faster, so on windows of 300k or less they never fire.
 #
 # Honors NO_COLOR (https://no-color.org/): set NO_COLOR to disable all coloring.
 #
@@ -65,6 +64,12 @@ cwd=$(jq -r '.workspace.current_dir // .cwd // "."' <<<"$input")
 dir=$(basename "$cwd" 2>/dev/null)
 model=$(jq -r '.model.display_name // empty' <<<"$input" | sed 's/ context)/)/')
 eff=$(jq -r '.effort.level // empty' <<<"$input")
+# Context tokens: exact input-side count from current_usage (the same formula
+# Claude Code uses for used_percentage); null before the first API call.
+ctx=$(jq -r '.context_window.current_usage
+  | if . == null then empty
+    else (.input_tokens // 0) + (.cache_creation_input_tokens // 0) + (.cache_read_input_tokens // 0)
+    end' <<<"$input")
 used=$(jq -r '.context_window.used_percentage // empty' <<<"$input")
 size=$(jq -r '.context_window.context_window_size // empty' <<<"$input")
 five=$(jq -r '.rate_limits.five_hour.used_percentage // empty' <<<"$input")
@@ -126,8 +131,12 @@ if [ -n "$eff" ]; then
 fi
 
 # ---- TRAFFIC LIGHT: context tokens in thousands ----------------------------
-if [ -n "$used" ] && [ -n "$size" ]; then
-  tk=$(awk -v u="$used" -v s="$size" 'BEGIN{printf "%.0f", u/100*s/1000}')
+# Falls back to used_percentage * context_window_size when current_usage is null.
+if [ -z "$ctx" ] && [ -n "$used" ] && [ -n "$size" ]; then
+  ctx=$(awk -v u="$used" -v s="$size" 'BEGIN{printf "%.0f", u/100*s}')
+fi
+if [ -n "$ctx" ]; then
+  tk=$(awk -v t="$ctx" 'BEGIN{printf "%.0f", t/1000}')
   col=""
   if   [ "$tk" -gt "$CTX_CRIT_K" ]; then col="$RED"
   elif [ "$tk" -gt "$CTX_WARN_K" ]; then col="$ORANGE"

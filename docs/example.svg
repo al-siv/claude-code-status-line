@@ -1,0 +1,4 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="663" height="44" viewBox="0 0 663 44" role="img" aria-label="Example status line: my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:88% 7d:97%">
+  <rect width="663" height="44" rx="6" fill="#1e1e1e"/>
+  <text x="20" y="27" fill="#d4d4d4" font-family="ui-monospace, SFMono-Regular, Menlo, Consolas, monospace" font-size="14" xml:space="preserve"><tspan>my-app  </tspan><tspan fill="#00d7ff">feature/login</tspan><tspan>  ∆:</tspan><tspan fill="#ffd700">2</tspan><tspan>+</tspan><tspan fill="#00d700">1</tspan><tspan>  δ:</tspan><tspan fill="#00d700">+47</tspan><tspan>/-12  </tspan><tspan fill="#ff00ff" font-weight="bold">Sonnet 4.6</tspan><tspan>•</tspan><tspan fill="#ff00ff" font-weight="bold">L</tspan><tspan>  </tspan><tspan fill="#ff8700">420k</tspan><tspan>  </tspan><tspan fill="#ff8700">5h:88%</tspan><tspan> </tspan><tspan fill="#ff0000">7d:97%</tspan></text>
+</svg>
