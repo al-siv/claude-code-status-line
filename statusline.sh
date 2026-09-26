@@ -8,7 +8,7 @@
 #   "statusLine": { "type": "command", "command": "bash /path/to/statusline.sh" }
 #
 # Segments:
-#   dir  <branch>  ∆: C+N  δ +A/-D  <model>  <eff>  NNNk  5h:X% 7d:Y%
+#   dir  <branch>  ∆:C+N  δ:+A/-D  <model>•<eff>  NNNk  5h:X% 7d:Y%
 #
 # Color layers -- every color carries exactly one meaning:
 #
@@ -20,12 +20,12 @@
 #   ATTENTION (the run is configured off the safe default, a categorical flag),
 #   shown in bold magenta:
 #     - model : flagged when its class is below Opus (matches WEAK_MODEL_RE)
-#     - <eff> : flagged when the effort level is not listed in SAFE_EFFORT
+#     - eff   : flagged when the effort level is not listed in SAFE_EFFORT
 #
 #   INFORMATION (data, not an alarm):
 #     - branch  : cyan when not on the main branch
-#     - ∆: C+N  : C changed tracked files (yellow), N new/untracked files (green)
-#     - δ +A/-D : +A added lines (green), -D removed lines (neutral)
+#     - ∆:C+N   : C changed tracked files (yellow), N new/untracked files (green)
+#     - δ:+A/-D : +A added lines (green), -D removed lines (neutral)
 #   green means "addition" (new files, added lines); yellow means "modified".
 #
 # Token-count note: the status JSON exposes used_percentage and
@@ -85,20 +85,20 @@ if [ -n "$branch" ]; then
   if [ "$branch" = "$MAIN_BRANCH" ]; then out="$out  $branch"
   else out="$out  ${CYAN}${branch}${RESET}"; fi
 
-  # ∆: C+N  (always shown; C changed = yellow, N new = green)
+  # ∆:C+N  (always shown; C changed = yellow, N new = green)
   porc=$(git -C "$cwd" --no-optional-locks status --porcelain 2>/dev/null)
   if [ -n "$porc" ]; then
     n=$(grep -c '^??' <<<"$porc")     # new (untracked)
     c=$(grep -vc '^??' <<<"$porc")    # changed/deleted/staged (tracked)
   else n=0; c=0; fi
-  out="$out  ∆: $(col_n "$c" "$YELLOW")+$(col_n "$n" "$GREEN")"
+  out="$out  ∆:$(col_n "$c" "$YELLOW")+$(col_n "$n" "$GREEN")"
 
-  # δ +A/-D  (uncommitted diff against HEAD; +A green, -D neutral)
+  # δ:+A/-D  (uncommitted diff against HEAD; +A green, -D neutral)
   diffstat=$(git -C "$cwd" --no-optional-locks diff HEAD --numstat 2>/dev/null)
   la=$(awk '$1 ~ /^[0-9]+$/ {a+=$1} END{print a+0}' <<<"$diffstat")
   lr=$(awk '$2 ~ /^[0-9]+$/ {d+=$2} END{print d+0}' <<<"$diffstat")
   if [ "$la" -gt 0 ] 2>/dev/null; then ap="${GREEN}+${la}${RESET}"; else ap="+${la}"; fi
-  out="$out  δ ${ap}/-${lr}"
+  out="$out  δ:${ap}/-${lr}"
 fi
 
 # ---- model (bold magenta when its class is below Opus) ---------------------
@@ -107,11 +107,21 @@ if [ -n "$model" ]; then
   else out="$out  $model"; fi
 fi
 
-# ---- effort <eff> (bold magenta when not in SAFE_EFFORT) -------------------
+# ---- effort •eff, glued to the model (bold magenta when not in SAFE_EFFORT) -
+# Displayed compactly: low=L medium=M high=H xhigh=XH max=X (unknown as-is)
 if [ -n "$eff" ]; then
+  case "$eff" in
+    low)    ef="L";;
+    medium) ef="M";;
+    high)   ef="H";;
+    xhigh)  ef="XH";;
+    max)    ef="X";;
+    *)      ef="$eff";;
+  esac
+  if [ -n "$model" ]; then sep="•"; else sep="  "; fi
   case " $SAFE_EFFORT " in
-    *" $eff "*) out="$out  <$eff>";;
-    *)          out="$out  ${MAGENTA_B}<$eff>${RESET}";;
+    *" $eff "*) out="$out$sep$ef";;
+    *)          out="$out$sep${MAGENTA_B}${ef}${RESET}";;
   esac
 fi
 

@@ -9,7 +9,7 @@ whenever you are running with a non-default model or reasoning-effort setting.
 ## Example
 
 ```
-my-app  feature/login  ∆: 2+1  δ +47/-12  Sonnet 4.6  <low>  420k  5h:88% 7d:97%
+my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:88% 7d:97%
 ```
 
 Left to right: directory `my-app`; on branch `feature/login` (not main); 2 modified
@@ -42,15 +42,15 @@ colors is the whole point: a color you see always means the same thing.
 | --- | --- | --- |
 | `dir` | current directory name | default |
 | `branch` | current git branch | cyan when not `main` |
-| `∆: C+N` | uncommitted files: C changed (tracked), N new (untracked) | C yellow, N green; shown whenever inside a repo |
-| `δ +A/-D` | uncommitted line diff vs `HEAD` | +A green, -D default |
+| `∆:C+N` | uncommitted files: C changed (tracked), N new (untracked) | C yellow, N green; shown whenever inside a repo |
+| `δ:+A/-D` | uncommitted line diff vs `HEAD` | +A green, -D default |
 | `model` | active model | bold magenta when below Opus |
-| `<eff>` | reasoning-effort level | bold magenta when not `high`/`xhigh` |
+| `•eff` | reasoning-effort level, glued to the model: `L` low, `M` medium, `H` high, `XH` xhigh, `X` max | bold magenta when not `high`/`xhigh` |
 | `NNNk` | context tokens used | orange above 300k, red above 500k |
 | `5h` / `7d` | rate-limit usage | orange above 80%, red above 95% |
 
 The `∆` and `δ` counters are shown whenever the current directory is a git
-repository, including `∆: 0+0` / `δ +0/-0` on a clean tree, so the layout stays
+repository, including `∆:0+0` / `δ:+0/-0` on a clean tree, so the layout stays
 stable and you always know where to look.
 
 ## Requirements
