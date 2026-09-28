@@ -8,13 +8,13 @@ context-window token budget, rate-limit traffic lights, and a clear flag wheneve
 the session runs on a model below Opus or an effort level outside your safe set.
 One Bash script, no build step.
 
-![Example status line: my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:88% 7d:97%](docs/example.svg)
+![Example status line: my-app  feature/login  ∆:2+1  δ:+47/-12  Sonnet 4.6•L  420k  5h:12% 7d:3%](docs/example.svg)
 
 Left to right: directory `my-app`; branch `feature/login` (cyan: not main); 2
 modified and 1 new uncommitted file; +47/-12 uncommitted lines; `Sonnet 4.6` at
 `low` effort (both flagged in magenta); 420k context tokens (orange: past the
-warning threshold); rate limits at 88% for 5 hours (orange) and 97% for 7 days
-(red).
+warning threshold); 12% of the 5-hour rate limit left (orange) and 3% of the
+7-day one (red).
 
 ## Design: one color, one meaning
 
@@ -46,7 +46,7 @@ colors is the whole point: a color you see always means the same thing.
 | `model` | active model | bold magenta when below Opus |
 | `•eff` | reasoning effort, attached to the model: `L` low, `M` medium, `H` high, `XH` xhigh, `X` max | bold magenta when not `high`/`xhigh` |
 | `NNNk` | context tokens used | orange above 300k, red above 500k |
-| `5h` / `7d` | rate-limit usage | orange above 80%, red above 95% |
+| `5h` / `7d` | share of the 5-hour / 7-day rate limit left (`100 − used`) | orange below 20% left, red below 5% left |
 
 Segments appear only when Claude Code provides their data:
 
@@ -110,8 +110,8 @@ inline in the command, for example:
 | --- | --- | --- |
 | `STATUSLINE_CTX_WARN_K` | `300` | context tokens (thousands) that turn the counter orange |
 | `STATUSLINE_CTX_CRIT_K` | `500` | context tokens (thousands) that turn it red |
-| `STATUSLINE_RL_WARN` | `80` | rate-limit percentage that turns a bucket orange |
-| `STATUSLINE_RL_CRIT` | `95` | rate-limit percentage that turns it red |
+| `STATUSLINE_RL_WARN_LEFT` | `20` | rate-limit percentage left below which a bucket turns orange |
+| `STATUSLINE_RL_CRIT_LEFT` | `5` | rate-limit percentage left below which it turns red |
 | `STATUSLINE_SAFE_EFFORT` | `high xhigh` | space-separated effort levels (full names) that are not flagged |
 | `STATUSLINE_WEAK_MODEL_RE` | `sonnet\|haiku` | case-insensitive regex of model names flagged as below Opus |
 | `STATUSLINE_MAIN_BRANCH` | `main` | branch treated as home (no highlight) |

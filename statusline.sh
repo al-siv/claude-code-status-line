@@ -10,11 +10,13 @@
 # Segments:
 #   dir  <branch>  ∆:C+N  δ:+A/-D  <model>•<eff>  NNNk  5h:X% 7d:Y%
 #
+# 5h / 7d show the share of each rate-limit window still left (100 - used).
+#
 # Color layers -- every color carries exactly one meaning:
 #
 #   TRAFFIC LIGHT (approaching a hard ceiling, a quantitative gradient):
 #     - context tokens NNNk : orange > CTX_WARN_K, red > CTX_CRIT_K
-#     - rate limits 5h / 7d : orange > RL_WARN%,   red > RL_CRIT%
+#     - rate limits 5h / 7d : orange < RL_WARN_LEFT% left, red < RL_CRIT_LEFT% left
 #     orange and red are used nowhere else.
 #
 #   ATTENTION (the run is configured off the safe default, a categorical flag),
@@ -43,8 +45,8 @@ input=$(cat)
 # ---- Configuration (override via environment) ------------------------------
 CTX_WARN_K="${STATUSLINE_CTX_WARN_K:-300}"                # context tokens (k) -> orange
 CTX_CRIT_K="${STATUSLINE_CTX_CRIT_K:-500}"                # context tokens (k) -> red
-RL_WARN="${STATUSLINE_RL_WARN:-80}"                       # rate-limit % -> orange
-RL_CRIT="${STATUSLINE_RL_CRIT:-95}"                       # rate-limit % -> red
+RL_WARN_LEFT="${STATUSLINE_RL_WARN_LEFT:-20}"             # rate-limit % left -> orange
+RL_CRIT_LEFT="${STATUSLINE_RL_CRIT_LEFT:-5}"              # rate-limit % left -> red
 SAFE_EFFORT="${STATUSLINE_SAFE_EFFORT:-high xhigh}"       # effort levels not flagged
 WEAK_MODEL_RE="${STATUSLINE_WEAK_MODEL_RE:-sonnet|haiku}" # models flagged below Opus
 MAIN_BRANCH="${STATUSLINE_MAIN_BRANCH:-main}"             # branch treated as "home"
@@ -144,13 +146,14 @@ if [ -n "$ctx" ]; then
   if [ -n "$col" ]; then out="$out  ${col}${tk}k${RESET}"; else out="$out  ${tk}k"; fi
 fi
 
-# ---- TRAFFIC LIGHT: rate limits --------------------------------------------
-rl_seg() {  # $1=label  $2=percent
+# ---- TRAFFIC LIGHT: rate limits, as the share left -------------------------
+rl_seg() {  # $1=label  $2=used percent
   [ -z "$2" ] && return
   local p col=""
-  p=$(printf '%.0f' "$2")
-  if   [ "$p" -gt "$RL_CRIT" ]; then col="$RED"
-  elif [ "$p" -gt "$RL_WARN" ]; then col="$ORANGE"
+  p=$(( 100 - $(printf '%.0f' "$2") ))
+  [ "$p" -lt 0 ] && p=0
+  if   [ "$p" -lt "$RL_CRIT_LEFT" ]; then col="$RED"
+  elif [ "$p" -lt "$RL_WARN_LEFT" ]; then col="$ORANGE"
   fi
   if [ -n "$col" ]; then printf '%s%s:%s%%%s' "$col" "$1" "$p" "$RESET"
   else printf '%s:%s%%' "$1" "$p"; fi
