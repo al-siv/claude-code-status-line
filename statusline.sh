@@ -21,8 +21,13 @@
 #
 #   ATTENTION (the run is configured off the safe default, a categorical flag),
 #   shown in bold magenta:
-#     - model : flagged when its class is below Opus (matches WEAK_MODEL_RE)
 #     - eff   : flagged when the effort level is not listed in SAFE_EFFORT
+#
+#   IDENTITY (which model is running, a categorical label; regular weight):
+#     - model : one hue per family -- Opus purple, Sonnet pink, Fable turquoise,
+#               Haiku blue. The family is read from the display name, then from
+#               the model id; an unrecognized model is left uncolored.
+#     The four hues are kept clear of every other layer's colors.
 #
 #   INFORMATION (data, not an alarm):
 #     - branch  : cyan when not on the main branch
@@ -48,7 +53,6 @@ CTX_CRIT_K="${STATUSLINE_CTX_CRIT_K:-500}"                # context tokens (k) -
 RL_WARN_LEFT="${STATUSLINE_RL_WARN_LEFT:-20}"             # rate-limit % left -> orange
 RL_CRIT_LEFT="${STATUSLINE_RL_CRIT_LEFT:-5}"              # rate-limit % left -> red
 SAFE_EFFORT="${STATUSLINE_SAFE_EFFORT:-high xhigh}"       # effort levels not flagged
-WEAK_MODEL_RE="${STATUSLINE_WEAK_MODEL_RE:-sonnet|haiku}" # models flagged below Opus
 MAIN_BRANCH="${STATUSLINE_MAIN_BRANCH:-main}"             # branch treated as "home"
 
 # ---- ANSI palette (256-color) ----------------------------------------------
@@ -58,13 +62,21 @@ GREEN=$'\033[38;5;40m'         # information: addition (new files, added lines)
 YELLOW=$'\033[38;5;220m'       # information: modified tracked files
 CYAN=$'\033[38;5;45m'          # information: off main branch
 MAGENTA_B=$'\033[1;38;5;201m'  # attention: run config off default
+OPUS=$'\033[38;5;135m'         # identity: Opus   (purple)
+SONNET=$'\033[38;5;211m'       # identity: Sonnet (pink)
+FABLE=$'\033[38;5;43m'         # identity: Fable  (turquoise)
+HAIKU=$'\033[38;5;75m'         # identity: Haiku  (sky blue)
 RESET=$'\033[0m'
-if [ -n "${NO_COLOR:-}" ]; then ORANGE=""; RED=""; GREEN=""; YELLOW=""; CYAN=""; MAGENTA_B=""; RESET=""; fi
+if [ -n "${NO_COLOR:-}" ]; then
+  ORANGE=""; RED=""; GREEN=""; YELLOW=""; CYAN=""; MAGENTA_B=""
+  OPUS=""; SONNET=""; FABLE=""; HAIKU=""; RESET=""
+fi
 
 # ---- Fields from the status JSON -------------------------------------------
 cwd=$(jq -r '.workspace.current_dir // .cwd // "."' <<<"$input")
 dir=$(basename "$cwd" 2>/dev/null)
 model=$(jq -r '.model.display_name // empty' <<<"$input" | sed 's/ context)/)/')
+model_id=$(jq -r '.model.id // empty' <<<"$input")
 eff=$(jq -r '.effort.level // empty' <<<"$input")
 # Context tokens: exact input-side count from current_usage (the same formula
 # Claude Code uses for used_percentage); null before the first API call.
@@ -108,9 +120,19 @@ if [ -n "$branch" ]; then
   out="$out  δ:${ap}/-${lr}"
 fi
 
-# ---- model (bold magenta when its class is below Opus) ---------------------
+# ---- model (one color per family; display name first, then model id) -------
 if [ -n "$model" ]; then
-  if grep -qiE "$WEAK_MODEL_RE" <<<"$model"; then out="$out  ${MAGENTA_B}${model}${RESET}"
+  mcol=""
+  for src in "$model" "$model_id"; do
+    case "$(tr '[:upper:]' '[:lower:]' <<<"$src")" in
+      *opus*)   mcol="$OPUS";;
+      *sonnet*) mcol="$SONNET";;
+      *fable*)  mcol="$FABLE";;
+      *haiku*)  mcol="$HAIKU";;
+    esac
+    [ -n "$mcol" ] && break
+  done
+  if [ -n "$mcol" ]; then out="$out  ${mcol}${model}${RESET}"
   else out="$out  $model"; fi
 fi
 
